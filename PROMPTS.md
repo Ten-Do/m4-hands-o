@@ -1,5 +1,7 @@
 # Session 4A — AI-assisted debugging
 
+Repository: https://github.com/Ten-Do/m4-hands-o
+
 ## Part A — Explain the stack trace
 
 ### Prompt
