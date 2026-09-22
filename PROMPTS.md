@@ -48,3 +48,79 @@ Commit created: `Fix five-year loyalty discount boundary`.
 ## Part C — Reflection
 
 The explanation reply was the most useful because it connected the numerical mismatch (95 instead of 90) to the 5% loyalty tier and narrowed the investigation to one condition. The patch reply was useful but less valuable, because once the inclusive boundary was identified, the one-character change was straightforward. I would normally provide the shortest stack-trace excerpt that includes the exception, expected-versus-actual values, and the first project-code frame; supplying the full trace can add irrelevant framework frames, make diagnosis slower, and disclose more project details than necessary. If the short excerpt does not distinguish competing causes, I would add frames incrementally rather than pasting everything at once.
+
+## Session 4B — Reducing cyclomatic complexity
+
+### Part A — Rank refactor targets
+
+#### Prompt
+
+> Rank the methods in this file by refactoring priority.
+> For each, give:
+> (a) current cyclomatic complexity estimate,
+> (b) the single refactor move you would apply first (extract-method, flatten-guard-clauses, replace-loop-with-pipeline, or rename),
+> (c) one sentence on the expected complexity reduction.
+> Do not propose code yet.
+
+#### AI response
+
+1. `quote(Order, Customer)` — estimated cyclomatic complexity: 14. First move: `extract-method`, targeting the loyalty-tier discount block. Moving its four decisions into a helper should reduce `quote` by about 4 while preserving the calculation order.
+2. `Money.requireSameCurrency(Money)` — estimated cyclomatic complexity: 2. First move: `flatten-guard-clauses`; there is only one validation branch, so the expected reduction is zero.
+3. `Money.times(double)` — estimated cyclomatic complexity: 1. First move: `rename`; this would not reduce complexity.
+4. `Money.add(Money)` — estimated cyclomatic complexity: 2. First move: `flatten-guard-clauses`; there is only one validation branch, so the expected reduction is zero.
+5. `Money.subtract(Money)` — estimated cyclomatic complexity: 2. First move: `flatten-guard-clauses`; there is only one validation branch, so the expected reduction is zero.
+
+The top priority is `quote` because it is the only method with several independent business-rule branches and the largest direct reduction available from one coherent extraction.
+
+### Part B — Apply one extract-method refactor
+
+#### Prompt
+
+> Extract the loyalty-tier discount block into a private helper method `applyLoyaltyDiscount(...)`. Do NOT change public method signatures. Show the diff.
+
+#### AI response
+
+```diff
+@@
+-        int years = customer.loyaltyYears();
+-        double loyaltyRate;
+-        if (years >= 5) {
+-            loyaltyRate = 0.10;
+-        } else if (years >= 3) {
+-            loyaltyRate = 0.05;
+-        } else if (years >= 1) {
+-            loyaltyRate = 0.02;
+-        } else {
+-            loyaltyRate = 0.0;
+-        }
+-        if (loyaltyRate > 0.0) {
+-            running = running.subtract(subtotal.times(loyaltyRate));
+-        }
++        running = applyLoyaltyDiscount(
++            running, subtotal, customer.loyaltyYears());
+@@
++    private static Money applyLoyaltyDiscount(Money running,
++                                               Money subtotal,
++                                               int years) {
++        if (years >= 5) {
++            return running.subtract(subtotal.times(0.10));
++        }
++        if (years >= 3) {
++            return running.subtract(subtotal.times(0.05));
++        }
++        if (years >= 1) {
++            return running.subtract(subtotal.times(0.02));
++        }
++        return running;
++    }
+```
+
+#### Review and verification
+
+The public `quote(Order, Customer)` signature is unchanged. The helper receives the existing `running` and `subtotal` values and returns the same value that the inline block assigned, so the discount remains applied before regional tax. The inclusive five-year boundary remains `years >= 5`.
+
+`make test` passes: all 10 tests pass with no regressions. PMD and SpotBugs are not wired into this repository's Makefile, so their optional checks were not run. The estimated cyclomatic complexity of `quote` drops from about 14 to about 10, a reduction of about 4; the extracted helper owns those four loyalty decisions.
+
+### Part D — Reflection
+
+The cyclomatic complexity of `quote` dropped by 4 points (from 14 to 10 by heuristic estimation, or 21 to 17 by exact McCabe calculation) by extracting the loyalty discount logic into `applyLoyaltyDiscount`. Furthermore, using early `return` statements instead of `if-else` assignments reduced the helper's own cyclomatic complexity from 5 to 4 by eliminating the intermediate `loyaltyRate` variable and redundant conditional checks. SpotBugs was not configured in this starter repository's Makefile, so no findings were flagged and no rule analysis was required. I rejected replacing the subtotal `for` loop with a Stream pipeline because it would not reduce decision complexity and would make skipping non-positive quantities less explicit and harder to read.
